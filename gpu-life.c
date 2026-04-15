@@ -3,7 +3,7 @@
   Email: espoirier@crimson.ua.edu
   Course Section: CS 481
   Homework #: 4
-  To Compile: nvcc -O -o gpu-life gpu-life.c
+  To Compile: nvcc -O3 -o gpu-life gpu-life.c
 */
 
 #include <stdio.h>
@@ -56,6 +56,20 @@ void printarray(int **a, int N, int k) {
   printf("\n");
 }
 
+void writearray(int **a, int N, const char *path) {
+  FILE *f = fopen(path, "w");
+  if (!f) {
+    fprintf(stderr, "Could not open output file %s\n", path);
+    exit(-1);
+  }
+  for (int i = 1; i < N+1; i++) {
+    for (int j = 1; j < N+1; j++)
+      fprintf(f, "%d ", a[i][j]);
+    fprintf(f, "\n");
+  }
+  fclose(f);
+}
+
 // 1 thread per interior cell, stride is N+2 so boundary rows/cols stay zero
 __global__ void life_kernel(const int *life, int *temp, int N, int *changed) {
   int j = blockIdx.x * blockDim.x + threadIdx.x + 1;
@@ -92,13 +106,14 @@ int main(int argc, char **argv) {
   int i, j, k, flag = 1, cellsalive = 0;
   double t1, t2;
 
-  if (argc != 3) {
-    printf("Usage: %s <size> <max. iterations>\n", argv[0]);
+  if (argc != 4) {
+    printf("Usage: %s <size> <max. iterations> <output file>\n", argv[0]);
     exit(-1);
   }
 
   N = atoi(argv[1]);
   NTIMES = atoi(argv[2]);
+  const char *outpath = argv[3];
 
   life = allocarray(N+2, N+2);
   temp = allocarray(N+2, N+2);
@@ -108,7 +123,7 @@ int main(int argc, char **argv) {
     temp[0][i] = temp[i][0] = temp[N+1][i] = temp[i][N+1] = DIES;
   }
 
-  /* Identical to life.c so both programs produce the same initial board. */
+  // same logic as life.c
   for (i = 1; i < N+1; i++) {
     srand48(54321+i);
     for (j = 1; j < N+1; j++)
@@ -160,10 +175,13 @@ int main(int argc, char **argv) {
   CUDA_CHECK(cudaDeviceSynchronize());
   t2 = gettime();
 
-#ifdef DEBUG1
   CUDA_CHECK(cudaMemcpy(&life[0][0], d_life, bytes, cudaMemcpyDeviceToHost));
+
+#ifdef DEBUG1
   printarray(life, N, k);
 #endif
+
+  writearray(life, N, outpath);
 
   printf("Time taken %f seconds for %d iterations, cells alive = %d\n",
          t2 - t1, k, cellsalive);

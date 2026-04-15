@@ -56,6 +56,21 @@ void printarray(int **a, int N, int k) {
   printf("\n");
 }
 
+/* write final board to a file in the same format as printarray (no header) */
+void writearray(int **a, int N, const char *path) {
+  FILE *f = fopen(path, "w");
+  if (!f) {
+    fprintf(stderr, "Could not open output file %s\n", path);
+    exit(-1);
+  }
+  for (int i = 1; i < N+1; i++) {
+    for (int j = 1; j < N+1; j++)
+      fprintf(f, "%d ", a[i][j]);
+    fprintf(f, "\n");
+  }
+  fclose(f);
+}
+
 /* update each cell based on old values */
 int compute(int **life, int **temp, int N, int *cellsalive) {
   int i, j, value, changed=0;
@@ -98,13 +113,14 @@ int main(int argc, char **argv) {
   int i, j, k, flag=1, cellsalive=0;
   double t1, t2;
 
-  if (argc != 3) {
-    printf("Usage: %s <size> <max. iterations>\n", argv[0]);
+  if (argc != 4) {
+    printf("Usage: %s <size> <max. iterations> <output file>\n", argv[0]);
     exit(-1);
   }
 
   N = atoi(argv[1]);
   NTIMES = atoi(argv[2]);
+  const char *outpath = argv[3];
 
   /* Allocate memory for both arrays */
   life = allocarray(N+2,N+2);
@@ -157,6 +173,8 @@ int main(int argc, char **argv) {
   /* Display the life matrix after k iterations */
   printarray(life, N, k);
 #endif
+
+  writearray(life, N, outpath);
 
   printf("Time taken %f seconds for %d iterations, cells alive = %d\n",
 	 t2 - t1, k, cellsalive);
