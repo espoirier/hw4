@@ -70,25 +70,53 @@ void writearray(int **a, int N, const char *path) {
   fclose(f);
 }
 
-// 1 thread per interior cell, stride is N+2 so boundary rows/cols stay zero
 __global__ void life_kernel(const int *life, int *temp, int N, int *changed) {
-  int j = blockIdx.x * blockDim.x + threadIdx.x + 1;
-  int i = blockIdx.y * blockDim.y + threadIdx.y + 1;
-  if (i > N || j > N) return;
+  __shared__ int tile[BLOCK + 2][BLOCK + 2];
+
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int j = blockIdx.x * BLOCK + tx + 1;
+  int i = blockIdx.y * BLOCK + ty + 1;
 
   int stride = N + 2;
-  int c = i * stride + j;
 
-  int value = life[c - stride - 1] + life[c - stride] + life[c - stride + 1]
-            + life[c - 1]                              + life[c + 1]
-            + life[c + stride - 1] + life[c + stride] + life[c + stride + 1];
+  // local tile coordinates + halo
+  int lx = tx + 1;
+  int ly = ty + 1;
 
-  int old = life[c];
+  // center cell
+  tile[ly][lx] = (i <= N && j <= N) ? life[i * stride + j] : DIES;
+
+  // halo loads
+  if (tx == 0)         tile[ly][0]         = (i <= N)               ? life[i * stride + (j - 1)] : DIES;
+  if (tx == BLOCK - 1) tile[ly][BLOCK + 1] = (i <= N)               ? life[i * stride + (j + 1)] : DIES;
+  if (ty == 0)         tile[0][lx]         = (j <= N)               ? life[(i - 1) * stride + j] : DIES;
+  if (ty == BLOCK - 1) tile[BLOCK + 1][lx] = (j <= N)               ? life[(i + 1) * stride + j] : DIES;
+
+  // 4 corners of the tile
+  if (tx == 0 && ty == 0)
+    tile[0][0] = life[(i - 1) * stride + (j - 1)];
+  if (tx == BLOCK - 1 && ty == 0)
+    tile[0][BLOCK + 1] = life[(i - 1) * stride + (j + 1)];
+  if (tx == 0 && ty == BLOCK - 1)
+    tile[BLOCK + 1][0] = life[(i + 1) * stride + (j - 1)];
+  if (tx == BLOCK - 1 && ty == BLOCK - 1)
+    tile[BLOCK + 1][BLOCK + 1] = life[(i + 1) * stride + (j + 1)];
+
+  __syncthreads();
+
+  if (i > N || j > N) return;
+
+  int value = tile[ly - 1][lx - 1] + tile[ly - 1][lx] + tile[ly - 1][lx + 1]
+            + tile[ly    ][lx - 1]                    + tile[ly    ][lx + 1]
+            + tile[ly + 1][lx - 1] + tile[ly + 1][lx] + tile[ly + 1][lx + 1];
+
+  int old = tile[ly][lx];
   int next;
   if (old) next = (value < 2 || value > 3) ? DIES : ALIVE;
   else     next = (value == 3) ? ALIVE : DIES;
 
-  temp[c] = next;
+  temp[i * stride + j] = next;
   if (next != old) atomicAdd(changed, 1);
 }
 
